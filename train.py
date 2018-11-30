@@ -128,6 +128,60 @@ class BOW(object):
         self.doc2num = np.asarray(doc2num)
 
 
+def train_capnet(EPOCH, train_loader, test_content_tensor, Y_test):
+    # 网络结构、损失函数、优化器初始化
+    capnet = Capsule_Main(embedding_matrix, vocab_size)  # 加载预训练embedding matrix
+    loss_func = nn.BCELoss()  # 用二分类方法预测是否属于该类，而非多分类
+    if USE_CUDA:
+        capnet = capnet.cuda()  # 把搭建的网络载入GPU
+        loss_func.cuda()  # 把损失函数载入GPU
+    optimizer = Adam(capnet.parameters(), lr=LR)  # 默认lr
+
+    it = 1
+    flag = 1
+    threshold = 0.2
+    max_test_f1 = 0
+    f1 = [0] * 9
+    for epoch in tqdm_notebook(range(EPOCH)):
+        for batch_id, (data, target) in enumerate(train_loader):
+            # print(len(target.numpy()))
+            if USE_CUDA:
+                data, target = data.cuda(), target.cuda()  # 数据载入GPU
+            output = capnet(data)
+            loss = loss_func(output, target)
+            # print(np.rint(output.cpu().data.numpy()))
+            if it % 50 == 0:
+                capnet.eval()
+                Y_test_pred = capnet(test_content_tensor).cpu().data.numpy()
+                for threshold_ in np.arange(0.1, 1, 0.1):
+                    YY = copy.deepcopy(Y_test_pred)
+                    YY[YY >= threshold_] = 1
+                    YY[YY < threshold_] = 0
+                    c = f1_score(Y_test, YY, average='micro')
+                    i = int(10 * threshold_ - 1)
+                    if f1[i] < c:
+                        f1[i] = c
+                Y_test_pred[Y_test_pred >= threshold] = 1
+                Y_test_pred[Y_test_pred < threshold] = 0
+                train_f1 = f1_score(np.rint(target.cpu().data.numpy()), np.rint(output.cpu().data.numpy()),
+                                    average='micro')
+                test_f1 = f1_score(Y_test, Y_test_pred, average='micro')
+                print('\ntraining loss: ', loss.cpu().data.numpy().tolist())
+                print('training f1: ', train_f1)
+                print('    test f1: ', test_f1)
+                if test_f1 > max_test_f1:
+                    max_test_f1 = test_f1
+                    torch.save(capnet, 'model_saved/capnet.pkl')
+                capnet.train()
+            optimizer.zero_grad()  # clear gradients for this training step
+            loss.backward()  # backpropagation, compute gradients
+            optimizer.step()  # apply gradients
+            it += 1
+
+    print('max test f1: ', max_test_f1)
+    print(f1)
+
+
 if __name__ == '__main__':
     warnings.filterwarnings("ignore")
     np.set_printoptions(precision=2, suppress=True, threshold=np.nan)
@@ -151,57 +205,15 @@ if __name__ == '__main__':
             num_workers=8,              # subprocesses for loading data
         )
 
-    # 网络结构、损失函数、优化器初始化
-    capnet = Capsule_Main(embedding_matrix,vocab_size) # 加载预训练embedding matrix
-    loss_func = nn.BCELoss() # 用二分类方法预测是否属于该类，而非多分类
-    if USE_CUDA:
-        capnet = capnet.cuda() # 把搭建的网络载入GPU
-        loss_func.cuda() # 把损失函数载入GPU
-    optimizer = Adam(capnet.parameters(),lr=LR) # 默认lr
-
     # 开始跑模型
-    it = 1
-    EPOCH = 50
-    flag = 1
-    threshold = 0.3
-    max_test_f1 = 0
-    f1 = [0] * 9
-    for epoch in tqdm_notebook(range(EPOCH)):
-        for batch_id, (data, target) in enumerate(train_loader):
-            #print(len(target.numpy()))
-            if USE_CUDA:
-                data, target = data.cuda(), target.cuda() # 数据载入GPU
-            output = capnet(data)
-            loss = loss_func(output, target)
-            #print(np.rint(output.cpu().data.numpy()))
-            if it % 50 == 0:
-                Y_test_pred = capnet(test_content_tensor.cuda()).cpu().data.numpy()
-                for threshold_ in np.arange(0.1,1,0.1):
-                    YY = copy.deepcopy(Y_test_pred)
-                    YY[YY >= threshold_] = 1
-                    YY[YY < threshold_] = 0
-                    c = f1_score(Y_test, YY, average='micro')
-                    i = int(10*threshold_ - 1)
-                    if f1[i] < c:
-                        f1[i] = c
-                Y_test_pred[Y_test_pred >= threshold] = 1
-                Y_test_pred[Y_test_pred < threshold] = 0
-                train_f1 = f1_score(np.rint(target.cpu().data.numpy()), np.rint(output.cpu().data.numpy()), average='micro')
-                test_f1 = f1_score(Y_test, Y_test_pred, average='micro')
-                print('\ntraining loss: ', loss.cpu().data.numpy().tolist())
-                print('training f1: ', train_f1)
-                print('    test f1: ', test_f1)
-                if test_f1 > max_test_f1:
-                    max_test_f1 = test_f1
-                # print('training acc: ', my_f1_score(np.rint(target.cpu().data.numpy()), np.rint(output.cpu().data.numpy())))
-                # print('test acc: ', my_f1_score(Y_test, np.rint(Y_test_pred.cpu().data.numpy())))
-                '''if flag and f1_score(Y_test, np.rint(Y_test_pred.cpu().data.numpy()), average='micro')>0.43:
-                    print(Y_test_pred.cpu().data.numpy())
-                    flag = 0'''
-            optimizer.zero_grad()           # clear gradients for this training step
-            loss.backward()                 # backpropagation, compute gradients
-            optimizer.step()                # apply gradients
-            it += 1
-
-    print('max test f1: ', max_test_f1)
-    print(f1)
+    EPOCH = 30
+    test_content_tensor = test_content_tensor.cuda()
+    #在这一句有问题，注释掉以后，load的模型也会有问题
+    train_capnet(EPOCH, train_loader, test_content_tensor, Y_test)
+    capnet = torch.load('model_saved/capnet.pkl').eval()
+    Y_test_pred = capnet(test_content_tensor).cpu().data.numpy()
+    threshold = 0.2
+    Y_test_pred[Y_test_pred >= threshold] = 1
+    Y_test_pred[Y_test_pred < threshold] = 0
+    test_f1 = f1_score(Y_test, Y_test_pred, average='micro')
+    print('test f1: ', test_f1)
