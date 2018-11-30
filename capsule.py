@@ -5,9 +5,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+import time
 
-USE_CUDA = True
-embedding_dim = 300
+
 use_pretrained_embedding = True
 BATCH_SIZE = 128
 gru_len = 128
@@ -16,7 +16,6 @@ Num_capsule = 10
 Dim_capsule = 16
 dropout_p = 0.25
 rate_drop_dense = 0.28
-LR = 0.001
 T_epsilon = 1e-7
 num_classes = 30
 
@@ -121,7 +120,6 @@ class Dense_Layer(nn.Module):
         return self.fc(x)
 
 
-
 class Capsule_Main(nn.Module):
     def __init__(self, embedding_matrix=None, vocab_size=None):
         super(Capsule_Main, self).__init__()
@@ -137,3 +135,53 @@ class Capsule_Main(nn.Module):
         content3 = self.caps_layer(content2)
         output = self.dense_layer(content3)
         return output
+
+
+class BasicModule(nn.Module):
+    '''
+    封装了nn.Module,主要是提供了save和load两个方法
+    '''
+
+    def __init__(self):
+        super(BasicModule, self).__init__()
+        self.model_name = str(type(self))  # 默认名字
+
+    def load(self, path, change_opt=True):
+        print(path)
+        data = torch.load(path)
+        if 'opt' in data:
+            # old_opt_stats = self.opt.state_dict()
+            if change_opt:
+                self.opt.parse(data['opt'], print_=False)
+                self.opt.embedding_path = None
+                self.__init__(self.opt)
+            # self.opt.parse(old_opt_stats,print_=False)
+            self.load_state_dict(data['d'])
+        else:
+            self.load_state_dict(data)
+        return self.cuda()
+
+    def save(self, name=None, new=False):
+        prefix = 'checkpoints/' + self.model_name + '_' + self.opt.type_ + '_'
+        if name is None:
+            name = time.strftime('%m%d_%H:%M:%S.pth')
+        path = prefix + name
+
+        if new:
+            data = {'opt': self.opt.state_dict(), 'd': self.state_dict()}
+        else:
+            data = self.state_dict()
+
+        torch.save(data, path)
+        return path
+
+    def get_optimizer(self, lr1, lr2=0, weight_decay=0):
+        ignored_params = list(map(id, self.encoder.parameters()))
+        base_params = filter(lambda p: id(p) not in ignored_params,
+                             self.parameters())
+        if lr2 is None: lr2 = lr1 * 0.5
+        optimizer = torch.optim.Adam([
+            dict(params=base_params, weight_decay=weight_decay, lr=lr1),
+            {'params': self.encoder.parameters(), 'lr': lr2}
+        ])
+        return optimizer
