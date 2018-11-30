@@ -61,7 +61,7 @@ def process_data(data):
 
     bow = BOW(data_tmp.content.apply(jieba.lcut).tolist(), min_count=1, maxlen=100)  # 长度补齐或截断固定长度100
 
-    word2vec = Word2Vec(data_tmp.content.apply(jieba.lcut).tolist(), size=300, min_count=1)
+    #word2vec = Word2Vec(data_tmp.content.apply(jieba.lcut).tolist(), size=300, min_count=1)
     #word2vec.wv.save_word2vec_format('data/w2v.txt', binary=False)
     word2vec = gensim.models.KeyedVectors.load_word2vec_format('data/w2v.txt') # 读取txt文件的预训练词向量
 
@@ -139,7 +139,7 @@ def train_capnet(EPOCH, train_loader, test_content_tensor, Y_test):
 
     it = 1
     flag = 1
-    threshold = 0.2
+    threshold = 0.3
     max_test_f1 = 0
     f1 = [0] * 9
     for epoch in tqdm_notebook(range(EPOCH)):
@@ -151,8 +151,7 @@ def train_capnet(EPOCH, train_loader, test_content_tensor, Y_test):
             loss = loss_func(output, target)
             # print(np.rint(output.cpu().data.numpy()))
             if it % 50 == 0:
-                capnet.eval()
-                Y_test_pred = capnet(test_content_tensor).cpu().data.numpy()
+                Y_test_pred = capnet(test_content_tensor.cuda()).cpu().data.numpy()
                 for threshold_ in np.arange(0.1, 1, 0.1):
                     YY = copy.deepcopy(Y_test_pred)
                     YY[YY >= threshold_] = 1
@@ -207,12 +206,13 @@ if __name__ == '__main__':
 
     # 开始跑模型
     EPOCH = 30
-    test_content_tensor = test_content_tensor.cuda()
-    #在这一句有问题，注释掉以后，load的模型也会有问题
     train_capnet(EPOCH, train_loader, test_content_tensor, Y_test)
-    capnet = torch.load('model_saved/capnet.pkl').eval()
-    Y_test_pred = capnet(test_content_tensor).cpu().data.numpy()
-    threshold = 0.2
+    capnet = torch.load('model_saved/capnet.pkl')
+    #capnet = Capsule_Main(embedding_matrix, vocab_size).cuda()
+    #capnet.load_state_dict(torch.load('model_saved/capnet.pkl'))
+    #print(capnet.state_dict())
+    Y_test_pred = capnet(test_content_tensor.cuda()).cpu().data.numpy()
+    threshold = 0.3
     Y_test_pred[Y_test_pred >= threshold] = 1
     Y_test_pred[Y_test_pred < threshold] = 0
     test_f1 = f1_score(Y_test, Y_test_pred, average='micro')
