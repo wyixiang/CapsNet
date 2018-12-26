@@ -19,6 +19,7 @@ import copy
 import time
 
 from capsule import *
+from cnn import *
 
 
 def read_file():
@@ -51,28 +52,22 @@ def read_file():
 
 
 def process_data(data):
-    # 处理同一个句子对应对标签的情况，然后进行MLB处理
     data_tmp = data.groupby('content').agg({'label': lambda x: set(x)}).reset_index()
-    # [[1,0,0],[0,1,0],[0,0,1]]
-    # 可能有多标签则[[1,1,0],[0,1,0],[0,0,1]]
     #print(data_tmp[0:100])
     mlb = MultiLabelBinarizer()
     data_tmp['trans_label'] = mlb.fit_transform(data_tmp.label).tolist()
     Y = np.array(data_tmp.trans_label.tolist())
 
-    # 构造embedding字典
-
-    bow = BOW(data_tmp.content.apply(jieba.lcut).tolist(), min_count=1, maxlen=100)  # 长度补齐或截断固定长度100
+    bow = BOW(data_tmp.content.apply(jieba.lcut).tolist(), min_count=1, maxlen=100)
 
     word2vec = Word2Vec(data_tmp.content.apply(jieba.lcut).tolist(), size=300, min_count=1)
     word2vec.wv.save_word2vec_format('data/w2v.txt', binary=False)
-    #word2vec = gensim.models.KeyedVectors.load_word2vec_format('data/w2v.txt') # 读取txt文件的预训练词向量
+    #word2vec = gensim.models.KeyedVectors.load_word2vec_format('data/w2v.txt')
 
     vocab_size = len(bow.word2idx)
     embedding_matrix = np.zeros((vocab_size + 1, embedding_dim))
-    #print(bow.word_count)
     for key, value in bow.word2idx.items():
-        if key in word2vec.wv.vocab:  # Word2Vec训练得到的的实例需要word2vec.wv.vocab
+        if key in word2vec.wv.vocab:
             embedding_matrix[value] = word2vec.wv.get_vector(key)
         else:
             embedding_matrix[value] = [0] * embedding_dim
@@ -100,9 +95,6 @@ def my_f1_score(Y_true, Y_pred):
 
 class BOW(object):
     def __init__(self, X, min_count=10, maxlen=100):
-        """
-        X: [[w1, w2],]]
-        """
         self.X = X
         self.min_count = min_count
         self.maxlen = maxlen
@@ -128,18 +120,18 @@ class BOW(object):
         doc2num = []
         for text in tqdm(self.X, desc='Doc To Number'):
             s = [self.word2idx.get(i, 0) for i in text[:self.maxlen]]
-            doc2num.append(s + [0] * (self.maxlen - len(s)))  # 未登录词全部用0表示
+            doc2num.append(s + [0] * (self.maxlen - len(s)))
         self.doc2num = np.asarray(doc2num)
 
 
 def train_capnet(EPOCH, train_loader, test_content_tensor, Y_test):
-    # 网络结构、损失函数、优化器初始化
-    capnet = Capsule_Main(embedding_matrix, vocab_size)  # 加载预训练embedding matrix
-    loss_func = nn.BCELoss()  # 用二分类方法预测是否属于该类，而非多分类
+    capnet = Capsule_Main(embedding_matrix, vocab_size)
+    #capnet = TextCNN(embedding_matrix, vocab_size)
+    loss_func = nn.BCELoss()
     if USE_CUDA:
-        capnet = capnet.cuda()  # 把搭建的网络载入GPU
-        loss_func.cuda()  # 把损失函数载入GPU
-    optimizer = Adam(capnet.parameters(), lr=LR)  # 默认lr
+        capnet = capnet.cuda()
+        loss_func.cuda()
+    optimizer = Adam(capnet.parameters(), lr=LR, weight_decay=1e-4)
 
     it = 1
     flag = 1
@@ -151,7 +143,7 @@ def train_capnet(EPOCH, train_loader, test_content_tensor, Y_test):
         for batch_id, (data, target) in enumerate(train_loader):
             # print(len(target.numpy()))
             if USE_CUDA:
-                data, target = data.cuda(), target.cuda()  # 数据载入GPU
+                data, target = data.cuda(), target.cuda()
             output = capnet(data)
             loss = loss_func(output, target)
             # print(np.rint(output.cpu().data.numpy()))
@@ -178,9 +170,9 @@ def train_capnet(EPOCH, train_loader, test_content_tensor, Y_test):
                     max_test_f1 = test_f1
                     torch.save(capnet, 'model_saved/capnet.pkl')
                 capnet.train()
-            optimizer.zero_grad()  # clear gradients for this training step
-            loss.backward()  # backpropagation, compute gradients
-            optimizer.step()  # apply gradients
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
             it += 1
 
     print('max test f1: ', max_test_f1)
@@ -193,20 +185,31 @@ LR = 0.001
 num_classes = 30
 remove_stop_words = True
 
+EPOCH = 100
+BATCH_SIZE = 64
+
 
 if __name__ == '__main__':
     warnings.filterwarnings("ignore")
     np.set_printoptions(precision=2, suppress=True, threshold=np.nan)
-
+    '''
     data = read_file()
     X, Y, embedding_matrix, vocab_size = process_data(data)
-    #print(embedding_matrix)
+    print(vocab_size)
+    torch.save(X, 'data/x.pth')
+    torch.save(Y, 'data/y.pth')
+    torch.save(embedding_matrix, 'data/embedding_matrix.pth')
+    '''
+    X = torch.load('data/x.pth')
+    Y = torch.load('data/y.pth')
+    embedding_matrix = torch.load('data/embedding_matrix.pth')
+    vocab_size = 18691
+
 
     X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.1, random_state=3)
 
     test_content_tensor = torch.from_numpy(np.array(X_test)).long()
 
-    BATCH_SIZE = 64
     label_tensor = torch.from_numpy(np.array(Y_train)).float()
     content_tensor = torch.from_numpy(np.array(X_train)).long()
 
@@ -218,8 +221,6 @@ if __name__ == '__main__':
             num_workers=8,              # subprocesses for loading data
         )
 
-    # 开始跑模型
-    EPOCH = 30
     train_capnet(EPOCH, train_loader, test_content_tensor, Y_test)
     capnet = torch.load('model_saved/capnet.pkl').eval()
     Y_test_pred = capnet(test_content_tensor.cuda()).cpu().data.numpy()
