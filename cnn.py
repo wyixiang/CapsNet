@@ -20,6 +20,8 @@ T_epsilon = 1e-7
 num_classes = 30
 
 word_embedding_dimension = 300
+maxlen = 100
+windows_size = [3,4,5,6]
 
 
 class Embed_Layer(nn.Module):
@@ -34,76 +36,41 @@ class Embed_Layer(nn.Module):
 
 
 class TextCNN(nn.Module):
-    def __init__(self, embedding_matrix=None, vocab_size=None):
+    def __init__(self, embedding_matrix=None, vocab_size=None, embedding_dim=300):
         super(TextCNN, self).__init__()
-        self.embed_layer = Embed_Layer(embedding_matrix, vocab_size)
-        self.conv1 = nn.Sequential(
-            nn.Conv1d(100, 400, kernel_size=3, stride=1, padding=0),
-            nn.ReLU(),
-            nn.MaxPool1d(kernel_size=3, stride=1)
-        )
+        self.embed_layer = Embed_Layer(embedding_matrix, vocab_size, embedding_dim)
 
-        self.conv2 = nn.Sequential(
-            nn.Conv1d(256, 256, kernel_size=7, stride=1),
-            nn.ReLU(),
-            nn.MaxPool1d(kernel_size=3, stride=3)
-        )
+        self.convs = nn.ModuleList([
+            nn.Sequential(nn.Conv1d(in_channels=embedding_dim,
+                                    out_channels=maxlen,
+                                    kernel_size=h),
+                          nn.ReLU(),
+                          nn.MaxPool1d(kernel_size=100 - h + 1))
+            for h in windows_size
+        ])
 
-        self.conv3 = nn.Sequential(
-            nn.Conv1d(512, 512, kernel_size=3, stride=1),
-            nn.ReLU()
-        )
-
-        self.conv4 = nn.Sequential(
-            nn.Conv1d(512, 512, kernel_size=3, stride=1),
-            nn.ReLU()
-        )
-
-        self.conv5 = nn.Sequential(
-            nn.Conv1d(256, 256, kernel_size=3, stride=1),
-            nn.ReLU()
-        )
-
-        self.conv6 = nn.Sequential(
-            nn.Conv1d(256, 256, kernel_size=3, stride=1),
-            nn.ReLU(),
-            nn.MaxPool1d(kernel_size=3, stride=3)
-        )
 
         self.fc1 = nn.Sequential(
-            nn.Linear(118400, 1024),
+            nn.Linear(len(windows_size)*maxlen, 400),
             nn.ReLU(),
             nn.Dropout(p=dropout_p, inplace=True)
         )
 
-        self.fc2 = nn.Sequential(
-            nn.Linear(1024, 1024),
-            nn.ReLU(),
-            nn.Dropout(p=dropout_p, inplace=True)
-        )
-
-        self.fc3 = nn.Linear(1024, num_classes)
-        #self.log_softmax = nn.LogSoftmax()
+        self.fc = nn.Linear(400, num_classes)
         self.Sigmoid = nn.Sigmoid()
 
     def forward(self, x):
-        x = self.embed_layer(x)
-        x = self.conv1(x)
+        embed_x = self.embed_layer(x)
+        embed_x = embed_x.permute(0, 2, 1)
+        #x = self.cons(x)
         #x = self.conv2(x)
-        #x = self.conv3(x)
-        #x = self.conv4(x)
-        #x = self.conv5(x)
-        #x = self.conv6(x)
 
         # collapse
+        out = [conv(embed_x) for conv in self.convs]
+        x = torch.cat(out, dim=1)
         x = x.view(x.size(0), -1)
-        # linear layer
         x = self.fc1(x)
-        # linear layer
-        #x = self.fc2(x)
-        # linear layer
-        x = self.fc3(x)
-        # output layer
+        x = self.fc(x)
         x = self.Sigmoid(x)
 
         return x

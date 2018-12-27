@@ -121,9 +121,9 @@ class Dense_Layer(nn.Module):
 
 
 class Capsule_Main(nn.Module):
-    def __init__(self, embedding_matrix=None, vocab_size=None):
+    def __init__(self, embedding_matrix=None, vocab_size=None, embedding_dim=300):
         super(Capsule_Main, self).__init__()
-        self.embed_layer = Embed_Layer(embedding_matrix, vocab_size)
+        self.embed_layer = Embed_Layer(embedding_matrix, vocab_size, embedding_dim)
         self.gru_layer = GRU_Layer()
         self.gru_layer.init_weights()
         self.caps_layer = Caps_Layer()

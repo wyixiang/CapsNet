@@ -124,19 +124,19 @@ class BOW(object):
         self.doc2num = np.asarray(doc2num)
 
 
-def train_capnet(EPOCH, train_loader, test_content_tensor, Y_test):
-    capnet = Capsule_Main(embedding_matrix, vocab_size)
-    #capnet = TextCNN(embedding_matrix, vocab_size)
+def train_capnet(EPOCH, train_loader, test_content_tensor, Y_test, max_test_f1 = 0.5):
+    #capnet = Capsule_Main(embedding_matrix, vocab_size)
+    capnet = TextCNN(embedding_matrix, vocab_size)
     loss_func = nn.BCELoss()
     if USE_CUDA:
         capnet = capnet.cuda()
         loss_func.cuda()
-    optimizer = Adam(capnet.parameters(), lr=LR, weight_decay=1e-4)
+    optimizer = Adam(capnet.parameters(), lr=LR, weight_decay=weight_decay)
 
     it = 1
     flag = 1
     threshold = 0.2
-    max_test_f1 = 0
+    #max_test_f1 = 0
     f1 = [0] * 9
     capnet.train()
     for epoch in tqdm_notebook(range(EPOCH)):
@@ -184,8 +184,9 @@ embedding_dim = 300
 LR = 0.001
 num_classes = 30
 remove_stop_words = True
+weight_decay = 1e-4
 
-EPOCH = 100
+EPOCH = 200
 BATCH_SIZE = 64
 
 
@@ -209,10 +210,8 @@ if __name__ == '__main__':
     X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.1, random_state=3)
 
     test_content_tensor = torch.from_numpy(np.array(X_test)).long()
-
     label_tensor = torch.from_numpy(np.array(Y_train)).float()
     content_tensor = torch.from_numpy(np.array(X_train)).long()
-
     torch_dataset = Data.TensorDataset(content_tensor, label_tensor)
     train_loader = Data.DataLoader(
             dataset=torch_dataset,      # torch TensorDataset format
@@ -221,7 +220,17 @@ if __name__ == '__main__':
             num_workers=8,              # subprocesses for loading data
         )
 
-    train_capnet(EPOCH, train_loader, test_content_tensor, Y_test)
+    capnet = torch.load('model_saved/capnet.pkl').eval()
+    Y_test_pred = capnet(test_content_tensor.cuda()).cpu().data.numpy()
+    threshold = 0.2
+    Y_test_pred[Y_test_pred >= threshold] = 1
+    Y_test_pred[Y_test_pred < threshold] = 0
+    test_f1 = f1_score(Y_test, Y_test_pred, average='micro')
+    print('test f1: ', test_f1)
+
+
+    train_capnet(EPOCH, train_loader, test_content_tensor, Y_test, test_f1)
+
     capnet = torch.load('model_saved/capnet.pkl').eval()
     Y_test_pred = capnet(test_content_tensor.cuda()).cpu().data.numpy()
     threshold = 0.2
