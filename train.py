@@ -125,8 +125,8 @@ class BOW(object):
 
 
 def train_capnet(EPOCH, train_loader, test_content_tensor, Y_test, max_test_f1 = 0.5):
-    capnet = Capsule_Main(embedding_matrix, vocab_size)
-    #capnet = TextCNN(embedding_matrix, vocab_size)
+    #capnet = Capsule_Main(embedding_matrix, vocab_size)
+    capnet = TextCNN(embedding_matrix, vocab_size)
     loss_func = nn.BCELoss()
     if USE_CUDA:
         capnet = capnet.cuda()
@@ -134,9 +134,7 @@ def train_capnet(EPOCH, train_loader, test_content_tensor, Y_test, max_test_f1 =
     optimizer = Adam(capnet.parameters(), lr=LR, weight_decay=weight_decay)
 
     it = 1
-    flag = 1
-    threshold = 0.2
-    #max_test_f1 = 0
+    threshold = 0.3
     f1 = [0] * 9
     capnet.train()
     for epoch in tqdm_notebook(range(EPOCH)):
@@ -186,7 +184,7 @@ num_classes = 30
 remove_stop_words = True
 weight_decay = 1e-4
 
-EPOCH = 200
+EPOCH = 120
 BATCH_SIZE = 64
 
 
@@ -224,20 +222,20 @@ if __name__ == '__main__':
             num_workers=8,              # subprocesses for loading data
         )
 
-    capnet = torch.load('model_saved/capnet.pkl').eval()
+    '''capnet = torch.load('model_saved/capnet.pkl').eval()
     Y_test_pred = capnet(val_content_tensor.cuda()).cpu().data.numpy()
     threshold = 0.2
     Y_test_pred[Y_test_pred >= threshold] = 1
     Y_test_pred[Y_test_pred < threshold] = 0
     test_f1 = f1_score(Y_val, Y_test_pred, average='micro')
-    print('test f1: ', test_f1)
+    print('test f1: ', test_f1)'''
 
 
-    train_capnet(EPOCH, train_loader, val_content_tensor, Y_val, test_f1)
+    train_capnet(EPOCH, train_loader, val_content_tensor, Y_val, 0.5)
 
     capnet = torch.load('model_saved/capnet.pkl').eval()
     Y_test_pred = capnet(test_content_tensor.cuda()).cpu().data.numpy()
-    threshold = 0.2
+    threshold = 0.3
     Y_test_pred[Y_test_pred >= threshold] = 1
     Y_test_pred[Y_test_pred < threshold] = 0
     test_f1 = f1_score(Y_test, Y_test_pred, average='micro')
